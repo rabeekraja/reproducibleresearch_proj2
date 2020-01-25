@@ -1,0 +1,183 @@
+---
+title: "ReproducibleResearchProject2"
+author: "rmydeen"
+date: "1/25/2020"
+output: 
+  html_document: 
+    keep_md: yes
+    toc: yes
+---
+Github repo: [Reproducible Research]
+
+## 1: Synopsis
+
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+This project goal is to explore the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage and find out health and economic issues.
+
+Data:
+[Data](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz)
+
+Information about Data: [Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+
+## 2: Data Processing
+
+### 2.1: Load Data & Clean
+
+Download the  data zip file and extract the data into a data frame.Then convert to a data table for further processing
+```{r DataLoad}
+library("data.table")
+library("ggplot2")
+#dataFileUrl <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+#download.file(dataFileUrl, destfile = paste0("C:\\CodeProjects/reproducibleresearch_proj2/data", '/repdata%2Fdata%2FStormData.csv.bz2'))
+dataFrame <- read.csv("C:\\CodeProjects/reproducibleresearch_proj2/data/repdata%2Fdata%2FStormData.csv.bz2")
+# Converting data frame to data table
+stormDataTable <- as.data.table(dataFrame)
+
+colnames(stormDataTable)
+head(stormDataTable)
+```
+
+### 2.2: Subsetting
+ 
+```{r Subsetting, results="hide"}
+# Finding columns to remove
+colstoRemove <- colnames(stormDataTable[, !c("EVTYPE"
+  , "FATALITIES"
+  , "INJURIES"
+  , "PROPDMG"
+  , "PROPDMGEXP"
+  , "CROPDMG"
+  , "CROPDMGEXP")])
+# Removing columns not required
+stormDataTable[, c(colstoRemove) := NULL]
+# Only use data where fatalities or injuries occurred for analysis.  
+stormDataTable <- stormDataTable[(EVTYPE != "?" & 
+             (INJURIES > 0 | FATALITIES > 0 | PROPDMG > 0 | CROPDMG > 0)), c("EVTYPE"
+                                                                            , "FATALITIES"
+                                                                            , "INJURIES"
+                                                                            , "PROPDMG"
+                                                                            , "PROPDMGEXP"
+                                                                            , "CROPDMG"
+                                                                            , "CROPDMGEXP") ]
+```
+
+### 2.3: Convert Exponent Columns into Actual Exponents
+
+Making the PROPDMGEXP and CROPDMGEXP columns with correct exponents  to calculate property and crop cost.
+```{r CorrectExponents, results="hide"}
+# To uppercase.
+cols <- c("PROPDMGEXP", "CROPDMGEXP")
+stormDataTable[,  (cols) := c(lapply(.SD, toupper)), .SDcols = cols]
+# Alphanumeric exponents to numeric one for calculation.
+propertyDamageKey <-  c("\"\"" = 10^0,
+                 "-" = 10^0, 
+                 "+" = 10^0,
+                 "0" = 10^0,
+                 "1" = 10^1,
+                 "2" = 10^2,
+                 "3" = 10^3,
+                 "4" = 10^4,
+                 "5" = 10^5,
+                 "6" = 10^6,
+                 "7" = 10^7,
+                 "8" = 10^8,
+                 "9" = 10^9,
+                 "H" = 10^2,
+                 "K" = 10^3,
+                 "M" = 10^6,
+                 "B" = 10^9)
+
+cropDamageKey <-  c("\"\"" = 10^0,
+                "?" = 10^0, 
+                "0" = 10^0,
+                "K" = 10^3,
+                "M" = 10^6,
+                "B" = 10^9)
+stormDataTable[, PROPDMGEXP := propertyDamageKey[as.character(stormDataTable[,PROPDMGEXP])]]
+stormDataTable[is.na(PROPDMGEXP), PROPDMGEXP := 10^0 ]
+stormDataTable[, CROPDMGEXP := cropDamageKey[as.character(stormDataTable[,CROPDMGEXP])] ]
+stormDataTable[is.na(CROPDMGEXP), CROPDMGEXP := 10^0 ]
+```
+
+### 2.4: Making Economic Cost Columns
+
+```{r EconomicCostColumns}
+stormDataTable <- stormDataTable[, .(EVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, propCost = PROPDMG * PROPDMGEXP, CROPDMG, CROPDMGEXP, cropCost = CROPDMG * CROPDMGEXP)]
+```
+
+### 2.5: Calculate Total Property and Crop Cost in Millions
+
+```{r TotalCost}
+totalCostDT <- stormDataTable[, .(prop_Cost = sum(propCost)/1000000, crop_Cost = sum(cropCost)/1000000, Total_Cost = sum(propCost)/1000000 + sum(cropCost)/1000000), by = .(EVTYPE)]
+totalCostDT <- totalCostDT[order(-Total_Cost), ]
+totalCostDT <- totalCostDT[1:5, ]
+head(totalCostDT, 5)
+```
+
+### 2.6: Calculate Total Fatalities and Injuries
+
+```{r TotalFatalitiesInjuriesCalculation}
+totalInjuriesDT <- stormDataTable[, .(FATALITIES = sum(FATALITIES), INJURIES = sum(INJURIES), totals = sum(FATALITIES) + sum(INJURIES)), by = .(EVTYPE)]
+totalInjuriesDT <- totalInjuriesDT[order(-FATALITIES), ]
+totalInjuriesDT <- totalInjuriesDT[1:5, ]
+head(totalInjuriesDT, 5)
+```
+
+## 3: Results
+
+### 3.1: Events that are harmful
+
+Melting data.table so that it is easier to put in bar graph format 
+```{r Health_Results}
+bad_events <- melt(totalInjuriesDT, id.vars="EVTYPE", variable.name = "Issues")
+head(bad_events, 5)
+```
+
+```{r health_charts}
+# Create chart
+healthChart <- ggplot(bad_events, aes(x=reorder(EVTYPE, -value), y=value))
+# bar chart
+healthChart = healthChart + geom_bar(stat="identity", aes(fill=Issues), position="dodge")
+#  y-axis scale &  y-axis label
+healthChart = healthChart + ylab("Frequency Count") 
+#  x-axis label
+healthChart = healthChart + xlab("Event Type") 
+#  x-axis tick labels 
+healthChart = healthChart + theme(axis.text.x = element_text(angle=45, hjust=1))
+# chart title
+healthChart = healthChart + ggtitle("Top 5 US Fatalities") + theme(plot.title = element_text(hjust = 0.5))+coord_flip()
+healthChart
+```
+
+### 3.2: Events that have the more Economic Issues
+
+Melting data.table so that it is easier to put in bar graph format 
+```{r EconomicIssues}
+economic_issues <- melt(totalCostDT, id.vars="EVTYPE", variable.name = "Damages")
+head(economic_issues, 5)
+```
+
+```{r economicChart}
+# ggplot 
+economicChart <- ggplot(economic_issues, aes(x=reorder(EVTYPE, -value), y=value),fill=EVTYPE)
+
+
+# bar chart
+economicChart = economicChart + geom_bar(stat="identity", aes(fill=Damages), position="dodge")
+#y-axis scale and y-axis label
+economicChart = economicChart + ylab("Cost (dollars) in Millions") 
+# x-axis label
+economicChart = economicChart + xlab("Event Type") 
+# x-axis tick labels 
+economicChart = economicChart + theme(axis.text.x = element_text(angle=45, hjust=1))
+# chart Title
+economicChart = economicChart + ggtitle("Top 5 Storm Events causing Economic Issues") + theme(plot.title = element_text(hjust = 0.5))+coord_flip()
+economicChart
+```
+
+## 3: Summary
+Analysis over storm data reveals that tornado causing more injuries and fatalities than any other events like excessive heat,flash flood,heat,lightning among top five.
+
+When it is coming to evaluate more causes that attributes to property damage and crop damage flood is highest causing event and further hurricane/typhoon and tornado is second and third causing events among top five.
+
