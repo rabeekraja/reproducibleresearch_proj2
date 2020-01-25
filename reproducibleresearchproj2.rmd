@@ -7,7 +7,7 @@ output:
     keep_md: yes
     toc: yes
 ---
-Github repo: [Reproducible Research]
+Github repo: [Reproducible Research](https://github.com/rabeekraja/reproducibleresearch_proj2)
 
 ## 1: Synopsis
 
